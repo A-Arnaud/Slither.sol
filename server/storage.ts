@@ -5,8 +5,9 @@ import { eq, desc } from "drizzle-orm";
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByWallet(walletAddress: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
+  createUser(user: InsertUser & { isTestMode?: boolean }): Promise<User>;
   updateUserScore(id: number, score: number): Promise<User>;
+  updateUserPayment(id: number, status: boolean): Promise<User>;
   getTopUsers(limit?: number): Promise<User[]>;
 }
 
@@ -21,13 +22,16 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const [user] = await db.insert(users).values(insertUser).returning();
+  async createUser(insertUser: InsertUser & { isTestMode?: boolean }): Promise<User> {
+    const [user] = await db.insert(users).values({
+      ...insertUser,
+      isTestMode: insertUser.isTestMode || false,
+      isPaid: false
+    }).returning();
     return user;
   }
 
   async updateUserScore(id: number, score: number): Promise<User> {
-    // Only update if score is higher than current bestScore
     const currentUser = await this.getUser(id);
     if (!currentUser) throw new Error("User not found");
     
@@ -40,6 +44,15 @@ export class DatabaseStorage implements IStorage {
       return updated;
     }
     return currentUser;
+  }
+
+  async updateUserPayment(id: number, status: boolean): Promise<User> {
+    const [updated] = await db
+      .update(users)
+      .set({ isPaid: status })
+      .where(eq(users.id, id))
+      .returning();
+    return updated;
   }
 
   async getTopUsers(limit = 10): Promise<User[]> {

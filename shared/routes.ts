@@ -19,13 +19,22 @@ export const api = {
     login: {
       method: 'POST' as const,
       path: '/api/auth/login',
-      input: insertUserSchema,
+      input: insertUserSchema.extend({ isTestMode: z.boolean().optional() }),
       responses: {
         200: z.custom<typeof users.$inferSelect>(),
         201: z.custom<typeof users.$inferSelect>(),
         400: errorSchemas.validation,
       },
     },
+    verifyPayment: {
+      method: 'POST' as const,
+      path: '/api/auth/verify-payment',
+      input: z.object({ signature: z.string(), walletAddress: z.string() }),
+      responses: {
+        200: z.object({ success: z.boolean() }),
+        400: errorSchemas.validation,
+      },
+    }
   },
   users: {
     list: {
