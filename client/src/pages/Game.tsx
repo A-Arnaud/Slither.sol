@@ -32,6 +32,7 @@ export default function Game() {
   const { toast } = useToast();
   const resultCardRef = useRef<HTMLDivElement | null>(null);
   const isHoldingEscRef = useRef(false);
+  const cashoutTimerRef = useRef<number | null>(null);
 
   const playCashSound = () => {
     try {
@@ -81,6 +82,12 @@ export default function Game() {
   const cashoutDurationMs = 2500;
   const cashoutResultHoldMs = 0;
   const escHoldDurationMs = 2500;
+  const clearCashoutTimer = () => {
+    if (cashoutTimerRef.current) {
+      window.clearTimeout(cashoutTimerRef.current);
+      cashoutTimerRef.current = null;
+    }
+  };
 
   const triggerCashout = async () => {
     const walletAddress = sessionStorage.getItem("slither_wallet");
@@ -92,19 +99,22 @@ export default function Game() {
     setResultKind("cashout");
     setIsCashoutLoading(true);
     setCashoutProgress(0);
-    await fetch("/api/auth/cash-out", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ walletAddress, isTestMode, stakeLamports })
-    });
-    window.setTimeout(() => {
+    clearCashoutTimer();
+    cashoutTimerRef.current = window.setTimeout(async () => {
+      try {
+        await fetch("/api/auth/cash-out", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ walletAddress, isTestMode, stakeLamports })
+        });
+      } catch {
+        // Ignore cashout failures; loss logic handles retries.
+      }
       setIsCashoutLoading(false);
       sessionStorage.setItem("slither_last_result", JSON.stringify({
         kind: "cashout",
         data: result,
       }));
-    }, cashoutDurationMs);
-    window.setTimeout(() => {
       sessionStorage.removeItem("slither_in_game");
       setLocation("/");
     }, cashoutDurationMs + cashoutResultHoldMs);
@@ -280,7 +290,15 @@ export default function Game() {
 
   const handleGameOver = (finalScore: number) => {
     if (gameOver) return;
-    if (isCashoutLoading || isHoldingEscRef.current || showResult) return;
+    if (isCashoutLoading || isHoldingEscRef.current) {
+      clearCashoutTimer();
+      setIsCashoutLoading(false);
+      setCashoutProgress(0);
+      isHoldingEscRef.current = false;
+      setIsHoldingEsc(false);
+      setEscHoldProgress(0);
+    }
+    if (showResult) return;
     setGameOver(true);
     setResultData(buildResult(finalScore, "loss"));
     setShowResult(true);
