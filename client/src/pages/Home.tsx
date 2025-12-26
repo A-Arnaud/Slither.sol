@@ -36,6 +36,7 @@ export default function Home() {
       
       sessionStorage.setItem("slither_user_id", String(user.id));
       sessionStorage.setItem("slither_username", user.username);
+      sessionStorage.setItem("slither_wallet", publicKey.toString());
       sessionStorage.setItem("slither_is_test", isTestMode ? "true" : "false");
 
       if (isTestMode) {

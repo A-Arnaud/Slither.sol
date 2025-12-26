@@ -43,18 +43,35 @@ export default function Game() {
       />
 
       {/* UI Overlay */}
-      <div className="absolute top-4 left-4 z-10 pointer-events-none">
+      <div className="absolute top-4 left-4 z-10 flex flex-col gap-2 pointer-events-none">
         <div className="bg-black/50 backdrop-blur px-6 py-3 rounded-full border border-primary/30 box-glow">
           <span className="text-gray-400 font-bold mr-2">SCORE</span>
           <span className="text-2xl font-mono text-primary font-bold">{score}</span>
         </div>
       </div>
 
-      <div className="absolute top-4 right-4 z-10 pointer-events-none">
-         <div className="bg-black/50 backdrop-blur px-6 py-3 rounded-full border border-secondary/30">
+      <div className="absolute top-4 right-4 z-10 flex items-center gap-4">
+        <div className="bg-black/50 backdrop-blur px-6 py-3 rounded-full border border-secondary/30 pointer-events-none">
           <span className="text-gray-400 font-bold mr-2">PLAYER</span>
           <span className="text-lg text-white font-bold">{username}</span>
         </div>
+        <CyberButton 
+          variant="secondary"
+          className="pointer-events-auto"
+          onClick={async () => {
+            const walletAddress = sessionStorage.getItem("slither_wallet");
+            if (walletAddress) {
+              await fetch("/api/auth/cash-out", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ walletAddress })
+              });
+              setLocation("/");
+            }
+          }}
+        >
+          Cash Out
+        </CyberButton>
       </div>
 
       {/* Game Over Modal */}

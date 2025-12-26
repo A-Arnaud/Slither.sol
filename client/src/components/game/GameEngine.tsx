@@ -78,15 +78,7 @@ export function GameEngine({
   }
 
   function spawnFood(count: number) {
-    for(let i=0; i<count; i++) {
-      gameState.current.food.push({
-        x: Math.random() * WORLD_SIZE,
-        y: Math.random() * WORLD_SIZE,
-        color: COLORS[Math.floor(Math.random() * COLORS.length)],
-        size: Math.random() * 5 + 3,
-        value: 10
-      });
-    }
+    // Food is now managed by the server
   }
 
   // WebSocket Setup
@@ -109,7 +101,15 @@ export function GameEngine({
 
     socket.onmessage = (event) => {
       const msg = JSON.parse(event.data);
-      if (msg.type === 'player-joined' || msg.type === 'player-moved') {
+      if (msg.type === 'food-update') {
+        gameState.current.food = msg.payload;
+      } else if (msg.type === 'food-eaten') {
+        gameState.current.food = gameState.current.food.filter(f => f.id !== msg.payload.id);
+        if (msg.payload.playerId === gameState.current.player.id) {
+           gameState.current.player.score += 10;
+           onScoreUpdate(gameState.current.player.score);
+        }
+      } else if (msg.type === 'player-joined' || msg.type === 'player-moved') {
         if (msg.payload.id !== gameState.current.player.id) {
           const s = gameState.current.otherSnakes.get(msg.payload.id) || createSnake(msg.payload.id, msg.payload.name, false, 0, 0);
           s.body = msg.payload.segments;
@@ -131,7 +131,7 @@ export function GameEngine({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    spawnFood(500);
+    // spawnFood(500); // Removed, server sends food
 
     let animationFrameId: number;
 

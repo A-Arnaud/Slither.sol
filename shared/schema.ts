@@ -10,6 +10,7 @@ export const users = pgTable("users", {
   coins: integer("coins").default(0),
   isPaid: boolean("is_paid").default(false),
   isTestMode: boolean("is_test_mode").default(false),
+  solBalance: integer("sol_balance").default(0), // in lamports
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -19,7 +20,8 @@ export const insertUserSchema = createInsertSchema(users).omit({
   bestScore: true,
   coins: true,
   isPaid: true,
-  isTestMode: true
+  isTestMode: true,
+  solBalance: true
 });
 
 export type User = typeof users.$inferSelect;
