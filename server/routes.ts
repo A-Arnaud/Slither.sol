@@ -381,12 +381,12 @@ export async function registerRoutes(
     if (!player.stakeLamports || player.stakeLamports <= 0) return;
     const user = await storage.getUserByWallet(player.walletAddress);
     if (!user) return;
-    const currentBalance = world.mode === "test"
+    const currentBalance = player.isTestMode
       ? Number(user.testSolBalance || 0)
       : Number(user.solBalance || 0);
     const loss = Math.min(currentBalance, player.stakeLamports);
     if (loss <= 0) return;
-    if (world.mode === "test") {
+    if (player.isTestMode) {
       await storage.updateUserTestBalance(user.id, -loss);
     } else {
       await storage.updateUserBalance(user.id, -loss);
@@ -479,7 +479,7 @@ export async function registerRoutes(
         if (Math.sqrt(dx * dx + dy * dy) < player.width / 2 + f.size) {
           player.score += f.isLoot ? f.lamports : f.value;
           if (f.isLoot && player.userId > 0) {
-            if (world.mode === "test") {
+            if (player.isTestMode) {
               void storage.updateUserTestBalance(player.userId, f.lamports);
             } else {
               void storage.updateUserBalance(player.userId, f.lamports);

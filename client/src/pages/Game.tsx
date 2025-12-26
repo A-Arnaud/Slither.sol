@@ -21,6 +21,7 @@ export default function Game() {
     scoreLamports: number;
     deltaLamports: number;
     percent: number;
+    feeLamports: number;
   } | null>(null);
   const [resultKind, setResultKind] = useState<"cashout" | "loss" | null>(null);
   const [isCashoutLoading, setIsCashoutLoading] = useState(false);
@@ -64,10 +65,15 @@ export default function Game() {
     return `${wallet.slice(0, 4)}...${wallet.slice(-3)}`;
   };
   const formatSol = (lamports: number) => (lamports / 1_000_000_000).toFixed(4);
-  const buildResult = (scoreLamports: number) => {
-    const deltaLamports = scoreLamports - stakeLamports;
+  const feeRate = 0.05;
+  const buildResult = (scoreLamports: number, kind: "cashout" | "loss") => {
+    const feeLamports = Math.floor(stakeLamports * feeRate);
+    const payoutLamports = kind === "cashout"
+      ? scoreLamports + stakeLamports - feeLamports
+      : scoreLamports;
+    const deltaLamports = payoutLamports - stakeLamports;
     const percent = stakeLamports > 0 ? (deltaLamports / stakeLamports) * 100 : 0;
-    return { stakeLamports, scoreLamports, deltaLamports, percent };
+    return { stakeLamports, scoreLamports: payoutLamports, deltaLamports, percent, feeLamports };
   };
   const cashoutDurationMs = 2500;
   const cashoutResultHoldMs = 4000;
@@ -181,7 +187,7 @@ export default function Game() {
   const handleGameOver = (finalScore: number) => {
     if (gameOver) return;
     setGameOver(true);
-    setResultData(buildResult(finalScore));
+    setResultData(buildResult(finalScore, "loss"));
     setShowResult(true);
     setResultKind("loss");
     if (userId) {
@@ -258,7 +264,7 @@ export default function Game() {
             const isTestMode = sessionStorage.getItem("slither_is_test") === "true";
             if (walletAddress) {
               playCashSound();
-              setResultData(buildResult(score));
+              setResultData(buildResult(score, "cashout"));
               setResultKind("cashout");
               setIsCashoutLoading(true);
               setCashoutProgress(0);
@@ -322,7 +328,7 @@ export default function Game() {
                     {resultData.deltaLamports >= 0 ? "Victory" : "Defeat"}
                   </div>
                   <div className="text-sm text-gray-300">
-                    Stake {formatSol(resultData.stakeLamports)} • Score {formatSol(resultData.scoreLamports)}
+                    Stake {formatSol(resultData.stakeLamports)} • {resultKind === "cashout" ? "Payout" : "Score"} {formatSol(resultData.scoreLamports)}
                   </div>
                 </div>
 
