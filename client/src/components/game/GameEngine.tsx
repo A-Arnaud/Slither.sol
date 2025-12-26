@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { useWindowSize } from 'react-use';
 
 // --- Types ---
@@ -14,13 +14,16 @@ interface Snake {
   width: number;
   speed: number;
   boosting: boolean;
+  boostEnergy?: number;
 }
 interface Food {
+  id: string;
   x: number;
   y: number;
   color: string;
   size: number;
   value: number;
+  isLoot: boolean;
 }
 
 // --- Constants ---
@@ -29,36 +32,59 @@ const INITIAL_SNAKE_LENGTH = 20;
 const BASE_SPEED = 4;
 const BOOST_SPEED = 7;
 const TURN_SPEED = 0.08;
+const INTERPOLATION_MS = 200;
 const COLORS = ['#22c55e', '#a855f7', '#06b6d4', '#f43f5e', '#eab308'];
+
+let sharedSocket: WebSocket | null = null;
+let sharedUsers = 0;
+let sharedPlayerId: string | null = null;
 
 export function GameEngine({ 
   playerName, 
   onGameOver,
-  onScoreUpdate 
+  onScoreUpdate,
+  onServerReject 
 }: { 
   playerName: string; 
   onGameOver: (score: number) => void; 
   onScoreUpdate: (score: number) => void;
+  onServerReject?: (message: string) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { width, height } = useWindowSize();
   const socketRef = useRef<WebSocket | null>(null);
-  
+  const playerIdRef = useRef(`p-${Math.random().toString(36).slice(2)}`);
+  const playerColorRef = useRef(COLORS[Math.floor(Math.random() * COLORS.length)]);
+  const lastInputAt = useRef(0);
+  const lastScoreRef = useRef(0);
+  const snapshotQueueRef = useRef<any[]>([]);
+  const serverOffsetRef = useRef<number | null>(null);
+  const onGameOverRef = useRef(onGameOver);
+  const onScoreUpdateRef = useRef(onScoreUpdate);
+  const onServerRejectRef = useRef(onServerReject);
+
   // Game State Refs
   const gameState = useRef({
-    player: createSnake('player', playerName, false, WORLD_SIZE/2, WORLD_SIZE/2),
-    otherSnakes: new Map<string, Snake>(),
+    players: new Map<string, Snake>(),
     food: [] as Food[],
     camera: { x: 0, y: 0 },
     mouse: { x: 0, y: 0 },
     boosting: false,
-    gameOver: false,
-    frameCount: 0
+    gameOver: false
   });
 
   const isTestMode = sessionStorage.getItem("slither_is_test") === "true";
+  const userId = sessionStorage.getItem("slither_user_id");
+  const walletAddress = sessionStorage.getItem("slither_wallet");
+  const stakeLamports = Number(sessionStorage.getItem("slither_stake") || "0");
 
-  function createSnake(id: string, name: string, isBot: boolean, x: number, y: number): Snake {
+  useEffect(() => {
+    onGameOverRef.current = onGameOver;
+    onScoreUpdateRef.current = onScoreUpdate;
+    onServerRejectRef.current = onServerReject;
+  }, [onGameOver, onScoreUpdate, onServerReject]);
+
+  function createSnake(id: string, name: string, isBot: boolean, x: number, y: number, color?: string): Snake {
     const body: Point[] = [];
     for(let i=0; i<INITIAL_SNAKE_LENGTH; i++) {
       body.push({ x: x - i * 5, y: y });
@@ -68,7 +94,7 @@ export function GameEngine({
       name,
       body,
       angle: Math.random() * Math.PI * 2,
-      color: isBot ? COLORS[Math.floor(Math.random() * COLORS.length)] : '#a855f7',
+      color: color || (isBot ? COLORS[Math.floor(Math.random() * COLORS.length)] : '#a855f7'),
       isBot,
       score: 0,
       width: 20,
@@ -77,55 +103,95 @@ export function GameEngine({
     };
   }
 
-  function spawnFood(count: number) {
-    // Food is now managed by the server
-  }
 
   // WebSocket Setup
   useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    const joinedName = sessionStorage.getItem("slither_username") || playerName;
+    const joinedIsTest = sessionStorage.getItem("slither_is_test") === "true";
+    const joinedUserId = sessionStorage.getItem("slither_user_id");
+    const joinedWallet = sessionStorage.getItem("slither_wallet") || "";
+    const joinedStake = Number(sessionStorage.getItem("slither_stake") || "0");
+
+    if (!sharedSocket || sharedSocket.readyState === WebSocket.CLOSED) {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      sharedSocket = new WebSocket(`${protocol}//${window.location.host}/ws`);
+      sharedPlayerId = null;
+    }
+    sharedUsers += 1;
+    const socket = sharedSocket;
     socketRef.current = socket;
 
-    socket.onopen = () => {
+    const sendJoin = () => {
+      if (sharedPlayerId === playerIdRef.current) return;
       socket.send(JSON.stringify({
         type: 'join',
         payload: {
-          id: gameState.current.player.id,
-          name: gameState.current.player.name,
-          segments: gameState.current.player.body,
-          color: gameState.current.player.color
+          id: playerIdRef.current,
+          name: joinedName,
+          color: playerColorRef.current,
+          mode: joinedIsTest ? "test" : "pvp",
+          isTestMode: joinedIsTest,
+          userId: joinedUserId ? Number(joinedUserId) : 0,
+          walletAddress: joinedWallet,
+          stakeLamports: joinedStake
         }
       }));
+      sharedPlayerId = playerIdRef.current;
     };
+
+    if (socket.readyState === WebSocket.OPEN) {
+      sendJoin();
+    } else {
+      socket.addEventListener("open", sendJoin, { once: true });
+    }
 
     socket.onmessage = (event) => {
       const msg = JSON.parse(event.data);
-      if (msg.type === 'food-update') {
-        gameState.current.food = msg.payload;
-      } else if (msg.type === 'food-eaten') {
-        gameState.current.food = gameState.current.food.filter(f => f.id !== msg.payload.id);
-        if (msg.payload.playerId === gameState.current.player.id) {
-           const eatenFood = gameState.current.food.find(f => f.id === msg.payload.id);
-           // If we found it before removal or if server sends value
-           const value = eatenFood?.isLoot ? eatenFood.lamports : 1_000_000; 
-           gameState.current.player.score += value;
-           onScoreUpdate(gameState.current.player.score);
+      if (msg.type === "snapshot") {
+        const receivedAt = Date.now();
+        const serverTs = Number(msg.payload?.ts) || receivedAt;
+        const sampleOffset = serverTs - receivedAt;
+        serverOffsetRef.current = serverOffsetRef.current === null
+          ? sampleOffset
+          : serverOffsetRef.current * 0.9 + sampleOffset * 0.1;
+        snapshotQueueRef.current.push({
+          serverTs,
+          players: msg.payload.players,
+          food: msg.payload.food,
+        });
+        if (snapshotQueueRef.current.length > 10) {
+          snapshotQueueRef.current.shift();
         }
-      } else if (msg.type === 'player-joined' || msg.type === 'player-moved') {
-        if (msg.payload.id !== gameState.current.player.id) {
-          const s = gameState.current.otherSnakes.get(msg.payload.id) || createSnake(msg.payload.id, msg.payload.name, false, 0, 0);
-          s.body = msg.payload.segments;
-          if (msg.payload.name) s.name = msg.payload.name;
-          if (msg.payload.color) s.color = msg.payload.color;
-          gameState.current.otherSnakes.set(msg.payload.id, s);
+
+        // Update scores from latest snapshot.
+        const me = msg.payload.players.find((p: any) => p.id === playerIdRef.current);
+        if (me && me.score !== lastScoreRef.current) {
+          lastScoreRef.current = me.score;
+          onScoreUpdateRef.current(me.score);
         }
-      } else if (msg.type === 'player-left' || msg.type === 'player-died') {
-        gameState.current.otherSnakes.delete(msg.payload.id);
+      } else if (msg.type === "dead") {
+        const player = gameState.current.players.get(playerIdRef.current);
+        const score = player ? player.score : 0;
+        gameState.current.gameOver = true;
+        onGameOverRef.current(score);
+      } else if (msg.type === "full" || msg.type === "reject") {
+        if (onServerRejectRef.current) {
+          onServerRejectRef.current(msg.payload?.message || "Unable to join world");
+        }
+        socket.close();
       }
     };
 
-    return () => socket.close();
+    return () => {
+      sharedUsers -= 1;
+      if (sharedUsers <= 0) {
+        sharedPlayerId = null;
+        if (sharedSocket && sharedSocket.readyState === WebSocket.OPEN) {
+          sharedSocket.close();
+        }
+        sharedSocket = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -134,81 +200,80 @@ export function GameEngine({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // spawnFood(500); // Removed, server sends food
-
     let animationFrameId: number;
 
     const render = () => {
       if (gameState.current.gameOver) return;
 
-      gameState.current.frameCount++;
-      const { player, otherSnakes, food, camera, mouse, boosting } = gameState.current;
+      const now = Date.now();
+      const offset = serverOffsetRef.current ?? 0;
+      const renderTime = now + offset - INTERPOLATION_MS;
+      const existingPlayers = gameState.current.players;
 
-      // Update Player
-      player.boosting = boosting;
-      player.speed = boosting ? BOOST_SPEED : BASE_SPEED;
-      
-      const targetAngle = Math.atan2(mouse.y - height/2, mouse.x - width/2);
-      let diff = targetAngle - player.angle;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      while (diff > Math.PI) diff -= Math.PI * 2;
-      player.angle += Math.sign(diff) * Math.min(Math.abs(diff), TURN_SPEED);
-
-      const head = player.body[0];
-      const newHead = {
-        x: head.x + Math.cos(player.angle) * player.speed,
-        y: head.y + Math.sin(player.angle) * player.speed
-      };
-
-      if(newHead.x < 0 || newHead.x > WORLD_SIZE || newHead.y < 0 || newHead.y > WORLD_SIZE) {
-        handleGameOver();
-        return;
+      // Build interpolated snapshot using buffered server updates.
+      const queue = snapshotQueueRef.current;
+      while (queue.length > 2 && queue[1].serverTs <= renderTime) {
+        queue.shift();
       }
 
-      player.body.unshift(newHead);
-      const desiredLength = INITIAL_SNAKE_LENGTH + Math.floor(player.score / 50);
-      while(player.body.length > desiredLength) player.body.pop();
+      if (queue.length >= 1) {
+        const from = queue[0];
+        const to = queue.length > 1 ? queue[1] : queue[0];
+        const span = Math.max(1, to.serverTs - from.serverTs);
+        const alpha = Math.min(1, Math.max(0, (renderTime - from.serverTs) / span));
 
-      camera.x = newHead.x - width / 2;
-      camera.y = newHead.y - height / 2;
+        const nextPlayers = new Map<string, Snake>();
+        const toById = new Map<string, any>();
+        to.players.forEach((tp: any) => {
+          toById.set(tp.id, tp);
+        });
+        const fromById = new Map<string, any>();
+        from.players.forEach((fp: any) => {
+          fromById.set(fp.id, fp);
+        });
+        const allIds = new Set<string>([...fromById.keys(), ...toById.keys()]);
+        allIds.forEach((id) => {
+          const p = fromById.get(id) || toById.get(id);
+          const match = toById.get(id) || p;
+          const existing = existingPlayers.get(p.id);
+          const snake = existing || createSnake(p.id, p.name, false, 0, 0, p.color);
+          snake.name = match.name;
+          snake.color = match.color;
+          snake.score = match.score;
+          snake.boostEnergy = match.boostEnergy ?? snake.boostEnergy ?? 100;
 
-      // Send update
-      if (socketRef.current?.readyState === WebSocket.OPEN && gameState.current.frameCount % 2 === 0) {
-        socketRef.current.send(JSON.stringify({
-          type: 'move',
-          payload: { id: player.id, segments: player.body }
-        }));
-      }
-
-      // Collisions (Food)
-      for(let i = food.length - 1; i >= 0; i--) {
-        const f = food[i];
-        const dx = newHead.x - f.x;
-        const dy = newHead.y - f.y;
-        if(Math.sqrt(dx*dx + dy*dy) < player.width/2 + f.size) {
-          player.score += f.value;
-          onScoreUpdate(player.score);
-          food.splice(i, 1);
-          spawnFood(1);
-        }
-      }
-
-      // Collisions (Tail) - Fixed: KILL logic
-      let died = false;
-      otherSnakes.forEach(other => {
-        // Skip head-to-head for simplicity, focus on hitting tail
-        for(let j=1; j<other.body.length; j++) {
-          const pt = other.body[j];
-          const dx = newHead.x - pt.x;
-          const dy = newHead.y - pt.y;
-          if(Math.sqrt(dx*dx + dy*dy) < player.width/2 + 5) {
-            died = true;
+          const maxLen = Math.max(p.segments.length, match.segments.length);
+          const interpolated: Point[] = [];
+          for (let i = 0; i < maxLen; i += 1) {
+            const a = p.segments[i] || p.segments[p.segments.length - 1];
+            const b = match.segments[i] || match.segments[match.segments.length - 1];
+            if (!a || !b) continue;
+            interpolated.push({
+              x: a.x + (b.x - a.x) * alpha,
+              y: a.y + (b.y - a.y) * alpha,
+            });
           }
-        }
-      });
-      if(died) {
-        handleGameOver();
-        return;
+          snake.body = interpolated;
+          if (snake.body.length > 1) {
+            const head = snake.body[0];
+            const neck = snake.body[1];
+            snake.angle = Math.atan2(head.y - neck.y, head.x - neck.x);
+          }
+          nextPlayers.set(p.id, snake);
+        });
+
+        gameState.current.players = nextPlayers;
+        gameState.current.food = to.food;
+      }
+
+      const players = gameState.current.players;
+      const food = gameState.current.food;
+      const camera = gameState.current.camera;
+      const player = players.get(playerIdRef.current);
+      if (player && player.body.length > 0) {
+        const head = player.body[0];
+        camera.x = head.x - width / 2;
+        camera.y = head.y - height / 2;
       }
 
       // Draw
@@ -239,57 +304,126 @@ export function GameEngine({
         }
       });
 
-      otherSnakes.forEach(s => drawSnake(ctx, s));
-      drawSnake(ctx, player, true);
+      players.forEach((s) => {
+        drawSnake(ctx, s, s.id === playerIdRef.current);
+      });
 
       ctx.restore();
+      const me = players.get(playerIdRef.current);
+      if (me && typeof me.boostEnergy === "number") {
+        const gaugeWidth = 200;
+        const gaugeHeight = 10;
+        const gaugeX = width / 2 - gaugeWidth / 2;
+        const gaugeY = height - 36;
+        const pct = Math.max(0, Math.min(100, me.boostEnergy)) / 100;
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+
+        ctx.fillStyle = me.boostEnergy > 20 ? '#00ffff' : '#ff3333';
+        ctx.fillRect(gaugeX, gaugeY, gaugeWidth * pct, gaugeHeight);
+
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+      }
       animationFrameId = requestAnimationFrame(render);
     };
 
     function drawSnake(ctx: CanvasRenderingContext2D, snake: Snake, isPlayer = false) {
-      if(snake.body.length === 0) return;
+      if (snake.body.length === 0) return;
       const head = snake.body[0];
-      
-      // Shadow for better design
-      ctx.shadowColor = snake.color;
-      ctx.shadowBlur = isPlayer ? 15 : 5;
 
-      // Draw Body with gradient-like segments
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.lineWidth = snake.width;
-      ctx.strokeStyle = snake.color;
-      
-      ctx.beginPath();
-      ctx.moveTo(head.x, head.y);
-      for(let i=1; i<snake.body.length; i++) {
-        ctx.lineTo(snake.body[i].x, snake.body[i].y);
+      // Draw shadow/glow
+      ctx.shadowBlur = isPlayer ? 15 : 5;
+      ctx.shadowColor = snake.color;
+
+      // Draw segments from tail to head for proper overlapping
+      for (let i = snake.body.length - 1; i >= 0; i--) {
+        const segment = snake.body[i];
+
+        // Calculate size: head is slightly larger, tapering towards tail
+        const baseSize = snake.width / 2;
+        const size = baseSize * (0.8 + (1 - i / snake.body.length) * 0.4);
+
+        ctx.beginPath();
+
+        if (i === 0) {
+          // Head
+          ctx.fillStyle = snake.color;
+          ctx.arc(segment.x, segment.y, size * 1.2, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Eyes
+          const angle = snake.angle || 0;
+          const eyeOffset = size * 0.7;
+          const eyeSize = size * 0.35;
+
+          ctx.fillStyle = 'white';
+          // Left eye
+          ctx.beginPath();
+          ctx.arc(
+            segment.x + Math.cos(angle - 0.5) * eyeOffset,
+            segment.y + Math.sin(angle - 0.5) * eyeOffset,
+            eyeSize, 0, Math.PI * 2
+          );
+          ctx.fill();
+          // Right eye
+          ctx.beginPath();
+          ctx.arc(
+            segment.x + Math.cos(angle + 0.5) * eyeOffset,
+            segment.y + Math.sin(angle + 0.5) * eyeOffset,
+            eyeSize, 0, Math.PI * 2
+          );
+          ctx.fill();
+
+          // Pupils
+          ctx.fillStyle = 'black';
+          ctx.beginPath();
+          ctx.arc(
+            segment.x + Math.cos(angle - 0.5) * (eyeOffset + 1),
+            segment.y + Math.sin(angle - 0.5) * (eyeOffset + 1),
+            eyeSize * 0.5, 0, Math.PI * 2
+          );
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(
+            segment.x + Math.cos(angle + 0.5) * (eyeOffset + 1),
+            segment.y + Math.sin(angle + 0.5) * (eyeOffset + 1),
+            eyeSize * 0.5, 0, Math.PI * 2
+          );
+          ctx.fill();
+        } else {
+          // Body segments with gradient/pattern
+          const gradient = ctx.createRadialGradient(
+            segment.x, segment.y, 0,
+            segment.x, segment.y, size
+          );
+
+          gradient.addColorStop(0, snake.color);
+          gradient.addColorStop(1, 'rgba(0,0,0,0.3)');
+
+          ctx.fillStyle = gradient;
+          ctx.arc(segment.x, segment.y, size, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Decorative shine
+          if (i % 3 === 0) {
+            ctx.beginPath();
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.arc(segment.x - size * 0.3, segment.y - size * 0.3, size * 0.2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
       }
-      ctx.stroke();
+
       ctx.shadowBlur = 0;
 
-      // Eyes on head
-      ctx.fillStyle = '#fff';
-      ctx.beginPath(); ctx.arc(head.x, head.y, snake.width * 0.6, 0, Math.PI * 2); ctx.fill();
-      
-      ctx.fillStyle = '#000';
-      const eyeOffset = snake.width * 0.3;
-      ctx.beginPath(); ctx.arc(head.x + Math.cos(snake.angle+0.5)*eyeOffset, head.y + Math.sin(snake.angle+0.5)*eyeOffset, 2, 0, Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(head.x + Math.cos(snake.angle-0.5)*eyeOffset, head.y + Math.sin(snake.angle-0.5)*eyeOffset, 2, 0, Math.PI*2); ctx.fill();
-
+      // Draw Name
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 14px Exo 2';
       ctx.textAlign = 'center';
       ctx.fillText(snake.name, head.x, head.y - 25);
-    }
-
-    function handleGameOver() {
-      gameState.current.gameOver = true;
-      if (socketRef.current?.readyState === WebSocket.OPEN) {
-        socketRef.current.send(JSON.stringify({ type: 'die', payload: { id: gameState.current.player.id } }));
-      }
-      if (animationFrameId) cancelAnimationFrame(animationFrameId);
-      onGameOver(gameState.current.player.score);
     }
 
     render();
@@ -297,9 +431,31 @@ export function GameEngine({
   }, [width, height, onGameOver, onScoreUpdate]);
 
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => { gameState.current.mouse = { x: e.clientX, y: e.clientY }; };
-    const handleMouseDown = () => { gameState.current.boosting = true; };
-    const handleMouseUp = () => { gameState.current.boosting = false; };
+    const sendInput = () => {
+      if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
+      const now = performance.now();
+      if (now - lastInputAt.current < 50) return;
+      lastInputAt.current = now;
+      const { mouse, boosting } = gameState.current;
+      const angle = Math.atan2(mouse.y - height / 2, mouse.x - width / 2);
+      socketRef.current.send(JSON.stringify({
+        type: "input",
+        payload: { angle, boosting }
+      }));
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      gameState.current.mouse = { x: e.clientX, y: e.clientY };
+      sendInput();
+    };
+    const handleMouseDown = () => {
+      gameState.current.boosting = true;
+      sendInput();
+    };
+    const handleMouseUp = () => {
+      gameState.current.boosting = false;
+      sendInput();
+    };
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mousedown', handleMouseDown);
     window.addEventListener('mouseup', handleMouseUp);
@@ -308,7 +464,21 @@ export function GameEngine({
       window.removeEventListener('mousedown', handleMouseDown);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, []);
+  }, [height, width]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
+      const { mouse, boosting } = gameState.current;
+      const angle = Math.atan2(mouse.y - height / 2, mouse.x - width / 2);
+      socketRef.current.send(JSON.stringify({
+        type: "input",
+        payload: { angle, boosting }
+      }));
+    }, 50);
+
+    return () => window.clearInterval(intervalId);
+  }, [height, width]);
 
   return <canvas ref={canvasRef} width={width} height={height} className="fixed inset-0 cursor-crosshair" />;
 }

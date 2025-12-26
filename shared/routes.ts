@@ -29,7 +29,11 @@ export const api = {
     verifyPayment: {
       method: 'POST' as const,
       path: '/api/auth/verify-payment',
-      input: z.object({ signature: z.string(), walletAddress: z.string() }),
+      input: z.object({
+        signature: z.string(),
+        walletAddress: z.string(),
+        stakeLamports: z.number()
+      }),
       responses: {
         200: z.object({ success: z.boolean(), user: z.custom<typeof users.$inferSelect>() }),
         400: errorSchemas.validation,
