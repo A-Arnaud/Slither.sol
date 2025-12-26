@@ -197,7 +197,11 @@ export default function Home() {
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ walletAddress, amount: 10 * 1_000_000_000 })
                           });
-                          loginMutation.reset(); // Refresh data
+                          await loginMutation.mutateAsync({
+                            walletAddress,
+                            username: loginMutation.data.username,
+                            isTestMode: isTestMode
+                          });
                         }
                       }}
                     >
