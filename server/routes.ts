@@ -107,17 +107,8 @@ export async function registerRoutes(
   const players = new Map();
   let foodItems: any[] = []; // In-memory food/loot state
 
-  // Initialize some food
-  for(let i=0; i<200; i++) {
-    foodItems.push({
-      id: `f-${i}`,
-      x: Math.random() * 4000,
-      y: Math.random() * 4000,
-      value: 10,
-      color: "#22c55e",
-      isLoot: false
-    });
-  }
+  // Initialize with NO random food (only loot from deaths)
+  // for(let i=0; i<200; i++) { ... }
 
   wss.on('connection', (ws) => {
     let playerId: string | null = null;
