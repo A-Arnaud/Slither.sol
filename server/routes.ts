@@ -89,12 +89,11 @@ export async function registerRoutes(
     try {
       const { walletAddress } = req.body;
       const user = await storage.getUserByWallet(walletAddress);
-      if (!user || (user.solBalance || 0) <= 0) return res.status(400).json({ message: "No balance to cash out" });
+      if (!user || Number(user.solBalance || 0) <= 0) return res.status(400).json({ message: "No balance to cash out" });
       
-      // In a real app, you would send a transaction here from the treasury.
-      // For now, we simulate and clear balance.
-      await storage.updateUserBalance(user.id, -(user.solBalance || 0));
-      res.json({ success: true, amount: user.solBalance });
+      const balance = Number(user.solBalance || 0);
+      await storage.updateUserBalance(user.id, -balance);
+      res.json({ success: true, amount: balance.toString() });
     } catch (err) {
       res.status(500).json({ message: "Cash out failed" });
     }

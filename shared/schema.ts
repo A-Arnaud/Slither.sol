@@ -1,6 +1,7 @@
-import { pgTable, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, bigint } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { sql } from "drizzle-orm";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -10,7 +11,7 @@ export const users = pgTable("users", {
   coins: integer("coins").default(0),
   isPaid: boolean("is_paid").default(false),
   isTestMode: boolean("is_test_mode").default(false),
-  solBalance: integer("sol_balance").default(0), // in lamports
+  solBalance: bigint("sol_balance", { mode: "number" }).default(sql`0`), // using sql`0` to avoid BigInt serialization issues in some tools
   createdAt: timestamp("created_at").defaultNow(),
 });
 

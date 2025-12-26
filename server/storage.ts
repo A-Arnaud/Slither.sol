@@ -62,9 +62,10 @@ export class DatabaseStorage implements IStorage {
   async updateUserBalance(id: number, amount: number): Promise<User> {
     const user = await this.getUser(id);
     if (!user) throw new Error("User not found");
+    const newBalance = Number(user.solBalance || 0) + amount;
     const [updated] = await db
       .update(users)
-      .set({ solBalance: (user.solBalance || 0) + amount })
+      .set({ solBalance: newBalance })
       .where(eq(users.id, id))
       .returning();
     return updated;
