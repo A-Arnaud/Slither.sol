@@ -11,13 +11,11 @@ import { AlertCircle, Wallet, Coins } from 'lucide-react';
 import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL, clusterApiUrl } from '@solana/web3.js';
 import { useToast } from "@/hooks/use-toast";
 
-// Use a known devnet address or random one for simulation if you don't have a treasury wallet
-const TREASURY_WALLET = "82h7Gg1i8w5y5g5v5w5x5y5z5A5b5C5d5E5f5G5h"; 
-
 export default function Home() {
   const [, setLocation] = useLocation();
   const { connected, publicKey, sendTransaction } = useWallet();
   const [username, setUsername] = useState("");
+  const [isTestMode, setIsTestMode] = useState(false);
   const { toast } = useToast();
   
   const loginMutation = useAuth();
@@ -29,73 +27,69 @@ export default function Home() {
       return;
     }
 
-    // 1. Authenticate / Create User
     try {
       const user = await loginMutation.mutateAsync({
         walletAddress: publicKey.toString(),
         username: username,
+        isTestMode: isTestMode
       });
       
-      // Store locally
       sessionStorage.setItem("slither_user_id", String(user.id));
       sessionStorage.setItem("slither_username", user.username);
+      sessionStorage.setItem("slither_is_test", isTestMode ? "true" : "false");
 
-      // 2. Process Payment (0.1 SOL Entry Fee)
-      // This logic creates a transaction on Solana Devnet
-      try {
-        const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
-        const transaction = new Transaction().add(
-          SystemProgram.transfer({
-            fromPubkey: publicKey,
-            toPubkey: new PublicKey(publicKey), // Self-transfer for safety if treasury invalid, or use TREASURY_WALLET
-            lamports: 0.1 * LAMPORTS_PER_SOL,
-          })
-        );
-        
-        const { blockhash } = await connection.getLatestBlockhash();
-        transaction.recentBlockhash = blockhash;
-        transaction.feePayer = publicKey;
-
-        const signature = await sendTransaction(transaction, connection);
-        
-        toast({ 
-          title: "Payment Successful", 
-          description: `Transaction: ${signature.slice(0, 8)}...` 
-        });
-
-        // 3. Start Game
+      if (isTestMode) {
+        toast({ title: "Test Mode", description: "Entering practice arena (No SOL required)" });
         setTimeout(() => setLocation("/game"), 500);
-
-      } catch (txError) {
-        console.error("Transaction failed", txError);
-        toast({ 
-          title: "Payment Failed", 
-          description: "Could not process 0.1 SOL entry fee. Make sure you are on Devnet with funds.", 
-          variant: "destructive" 
-        });
-        
-        // FOR MVP TESTING ONLY: Allow entry even if payment fails (remove for production)
-        toast({ title: "Dev Mode", description: "Entering game anyway for demo...", duration: 2000 });
-        setTimeout(() => setLocation("/game"), 1000);
+        return;
       }
 
-    } catch (authError: any) {
-      console.error("Login failed", authError);
+      const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
+      const transaction = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: publicKey,
+          toPubkey: new PublicKey("21LyNXi8os73adkt61ppznLCMFK2jeoPHezMNrMVZfZZ"),
+          lamports: 0.1 * LAMPORTS_PER_SOL,
+        })
+      );
+      
+      const { blockhash } = await connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = publicKey;
+
+      const signature = await sendTransaction(transaction, connection);
+      
+      const response = await fetch('/api/auth/verify-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ signature, walletAddress: publicKey.toString() })
+      });
+
+      if (response.ok) {
+        toast({ title: "Payment Verified", description: "Entering battle arena!" });
+        setTimeout(() => setLocation("/game"), 500);
+      } else {
+        throw new Error("Payment verification failed");
+      }
+
+    } catch (txError: any) {
+      console.error("Action failed", txError);
+      toast({ 
+        title: "Error", 
+        description: txError.message || "Transaction failed or cancelled", 
+        variant: "destructive" 
+      });
     }
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
-      
-      {/* Background Animated Elements */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-purple-600/20 blur-[100px] rounded-full animate-pulse" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-green-600/20 blur-[100px] rounded-full animate-pulse" style={{ animationDelay: '2s' }} />
       </div>
 
       <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-12 items-center relative z-10">
-        
-        {/* Left Column: Login / Actions */}
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -112,8 +106,6 @@ export default function Home() {
           </div>
 
           <div className="bg-black/40 backdrop-blur-xl border border-white/10 p-8 rounded-2xl shadow-2xl space-y-6">
-            
-            {/* Step 1: Connect Wallet */}
             <div className={`transition-opacity duration-300 ${connected ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
               <div className="flex items-center gap-3 mb-4 text-purple-300">
                 <Wallet className="w-5 h-5" />
@@ -122,7 +114,6 @@ export default function Home() {
               <WalletMultiButton className="!w-full !justify-center" />
             </div>
 
-            {/* Step 2: Game Details */}
             {connected && (
               <motion.div 
                 initial={{ opacity: 0, height: 0 }}
@@ -146,28 +137,41 @@ export default function Home() {
                 <div className="pt-2">
                    <div className="flex items-center gap-3 mb-4 text-yellow-300">
                     <Coins className="w-5 h-5" />
-                    <span className="uppercase tracking-wider font-bold text-sm">Step 3: Entry Fee</span>
+                    <span className="uppercase tracking-wider font-bold text-sm">Step 3: Mode</span>
                   </div>
+
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <CyberButton 
+                      variant={!isTestMode ? "default" : "secondary"}
+                      onClick={() => setIsTestMode(false)}
+                      className="text-sm"
+                    >
+                      PVP (0.1 SOL)
+                    </CyberButton>
+                    <CyberButton 
+                      variant={isTestMode ? "default" : "secondary"}
+                      onClick={() => setIsTestMode(true)}
+                      className="text-sm"
+                    >
+                      Test Mode
+                    </CyberButton>
+                  </div>
+
                   <CyberButton 
                     onClick={handlePlay} 
                     isLoading={loginMutation.isPending}
                     className="w-full text-lg py-6"
                   >
-                    Deposit 0.1 SOL & Play
+                    {isTestMode ? "Enter Training" : "Deposit & Battle"}
                   </CyberButton>
-                  <p className="text-center text-xs text-gray-500 mt-3 uppercase tracking-wider">
-                    Powered by Solana Devnet
-                  </p>
                 </div>
               </motion.div>
             )}
           </div>
         </motion.div>
 
-        {/* Right Column: Leaderboard & Stats */}
         <div className="hidden lg:block space-y-6">
           <Leaderboard />
-          
           <motion.div 
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
@@ -181,7 +185,6 @@ export default function Home() {
             <div className="text-sm text-gray-400 mt-1">Live on Mainnet Beta (Soon)</div>
           </motion.div>
         </div>
-
       </div>
     </div>
   );

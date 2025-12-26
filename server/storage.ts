@@ -24,7 +24,8 @@ export class DatabaseStorage implements IStorage {
 
   async createUser(insertUser: InsertUser & { isTestMode?: boolean }): Promise<User> {
     const [user] = await db.insert(users).values({
-      ...insertUser,
+      walletAddress: insertUser.walletAddress,
+      username: insertUser.username,
       isTestMode: insertUser.isTestMode || false,
       isPaid: false
     }).returning();

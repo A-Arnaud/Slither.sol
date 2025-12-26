@@ -31,8 +31,9 @@ export const api = {
       path: '/api/auth/verify-payment',
       input: z.object({ signature: z.string(), walletAddress: z.string() }),
       responses: {
-        200: z.object({ success: z.boolean() }),
+        200: z.object({ success: z.boolean(), user: z.custom<typeof users.$inferSelect>() }),
         400: errorSchemas.validation,
+        404: errorSchemas.notFound,
       },
     }
   },
