@@ -60,11 +60,12 @@ export default function Game() {
           className="pointer-events-auto"
           onClick={async () => {
             const walletAddress = sessionStorage.getItem("slither_wallet");
+            const isTestMode = sessionStorage.getItem("slither_is_test") === "true";
             if (walletAddress) {
               await fetch("/api/auth/cash-out", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ walletAddress })
+                body: JSON.stringify({ walletAddress, isTestMode })
               });
               setLocation("/");
             }

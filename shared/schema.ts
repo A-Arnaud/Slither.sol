@@ -11,7 +11,8 @@ export const users = pgTable("users", {
   coins: integer("coins").default(0),
   isPaid: boolean("is_paid").default(false),
   isTestMode: boolean("is_test_mode").default(false),
-  solBalance: bigint("sol_balance", { mode: "number" }).default(sql`0`), // using sql`0` to avoid BigInt serialization issues in some tools
+  solBalance: bigint("sol_balance", { mode: "number" }).default(sql`0`), 
+  testSolBalance: bigint("test_sol_balance", { mode: "number" }).default(sql`0`),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

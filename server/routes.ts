@@ -28,7 +28,7 @@ export async function registerRoutes(
         
         // Give fake SOL if test mode
         if (req.body.isTestMode) {
-          user = await storage.updateUserBalance(user.id, 10 * 1_000_000_000); // 10 Fake SOL
+          user = await storage.updateUserTestBalance(user.id, 10 * 1_000_000_000); // 10 Fake SOL
         }
         
         return res.status(201).json(user);
@@ -36,7 +36,7 @@ export async function registerRoutes(
       
       // If user exists but is entering test mode, give them test balance if they don't have it
       if (req.body.isTestMode && !user.isTestMode) {
-         user = await storage.updateUserBalance(user.id, 10 * 1_000_000_000);
+         user = await storage.updateUserTestBalance(user.id, 10 * 1_000_000_000);
          // Also update the test mode flag in DB
          user = await storage.updateUserTestMode(user.id, true);
       }
@@ -87,8 +87,16 @@ export async function registerRoutes(
 
   app.post("/api/auth/cash-out", async (req, res) => {
     try {
-      const { walletAddress } = req.body;
+      const { walletAddress, isTestMode } = req.body;
       const user = await storage.getUserByWallet(walletAddress);
+      
+      if (isTestMode) {
+        if (!user || Number(user.testSolBalance || 0) <= 0) return res.status(400).json({ message: "No test balance to cash out" });
+        const balance = Number(user.testSolBalance || 0);
+        await storage.updateUserTestBalance(user.id, -balance);
+        return res.json({ success: true, amount: balance.toString() });
+      }
+
       if (!user || Number(user.solBalance || 0) <= 0) return res.status(400).json({ message: "No balance to cash out" });
       
       const balance = Number(user.solBalance || 0);
@@ -154,7 +162,11 @@ export async function registerRoutes(
                    player.score += f.value;
                    if (f.isLoot) {
                      // If it's SOL loot, update database
-                     storage.updateUserBalance(parseInt(player.userId), f.lamports);
+                     if (player.isTestMode) {
+                       storage.updateUserTestBalance(parseInt(player.userId), f.lamports);
+                     } else {
+                       storage.updateUserBalance(parseInt(player.userId), f.lamports);
+                     }
                    }
                    broadcast({ type: 'food-eaten', payload: { id: f.id, playerId } });
                    return false;

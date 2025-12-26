@@ -7,8 +7,8 @@ export interface IStorage {
   getUserByWallet(walletAddress: string): Promise<User | undefined>;
   createUser(user: InsertUser & { isTestMode?: boolean }): Promise<User>;
   updateUserScore(id: number, score: number): Promise<User>;
-  updateUserPayment(id: number, status: boolean): Promise<User>;
   updateUserBalance(id: number, amount: number): Promise<User>;
+  updateUserTestBalance(id: number, amount: number): Promise<User>;
   updateUserTestMode(id: number, isTestMode: boolean): Promise<User>;
   getTopUsers(limit?: number): Promise<User[]>;
 }
@@ -30,7 +30,8 @@ export class DatabaseStorage implements IStorage {
       username: insertUser.username,
       isTestMode: insertUser.isTestMode || false,
       isPaid: false,
-      solBalance: 0
+      solBalance: 0,
+      testSolBalance: 0
     }).returning();
     return user;
   }
@@ -66,6 +67,18 @@ export class DatabaseStorage implements IStorage {
     const [updated] = await db
       .update(users)
       .set({ solBalance: newBalance })
+      .where(eq(users.id, id))
+      .returning();
+    return updated;
+  }
+
+  async updateUserTestBalance(id: number, amount: number): Promise<User> {
+    const user = await this.getUser(id);
+    if (!user) throw new Error("User not found");
+    const newBalance = Number(user.testSolBalance || 0) + amount;
+    const [updated] = await db
+      .update(users)
+      .set({ testSolBalance: newBalance })
       .where(eq(users.id, id))
       .returning();
     return updated;
