@@ -223,12 +223,25 @@ export async function registerRoutes(
 
   app.post("/api/auth/cash-out", async (req, res) => {
     try {
-      const { walletAddress, isTestMode } = req.body;
+      const { walletAddress, isTestMode, stakeLamports } = z.object({
+        walletAddress: z.string(),
+        isTestMode: z.boolean().optional().default(false),
+        stakeLamports: z.number().optional().default(0),
+      }).parse(req.body);
       const user = await storage.getUserByWallet(walletAddress);
       
       if (!user) return res.status(404).json({ message: "User not found" });
-      const balance = isTestMode ? Number(user.testSolBalance || 0) : Number(user.solBalance || 0);
-      res.json({ success: true, amount: balance.toString(), user });
+      let updatedUser = user;
+      if (isTestMode && stakeLamports > 0) {
+        const feeLamports = Math.floor(stakeLamports * FEE_RATE);
+        if (feeLamports > 0) {
+          updatedUser = await storage.updateUserTestBalance(user.id, -feeLamports);
+        }
+      }
+      const balance = isTestMode
+        ? Number(updatedUser.testSolBalance || 0)
+        : Number(updatedUser.solBalance || 0);
+      res.json({ success: true, amount: balance.toString(), user: updatedUser });
     } catch (err) {
       res.status(500).json({ message: "Cash out failed" });
     }

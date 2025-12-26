@@ -271,7 +271,7 @@ export default function Game() {
               await fetch("/api/auth/cash-out", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ walletAddress, isTestMode })
+                body: JSON.stringify({ walletAddress, isTestMode, stakeLamports })
               });
               window.setTimeout(() => {
                 setIsCashoutLoading(false);
