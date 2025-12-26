@@ -14,7 +14,7 @@ export default function Game() {
   const [score, setScore] = useState(0);
   const [gameOver, setGameOver] = useState(false);
   const [user, setUser] = useState<User | null>(null);
-  const [onlinePlayers, setOnlinePlayers] = useState<Array<{ id: string; name: string; score: number; walletAddress?: string }>>([]);
+  const [onlinePlayers, setOnlinePlayers] = useState<Array<{ id: string; name: string; score: number; walletAddress?: string; mode: "test" | "pvp" }>>([]);
   const [showResult, setShowResult] = useState(false);
   const [resultData, setResultData] = useState<{
     stakeLamports: number;
@@ -26,9 +26,12 @@ export default function Game() {
   const [resultKind, setResultKind] = useState<"cashout" | "loss" | null>(null);
   const [isCashoutLoading, setIsCashoutLoading] = useState(false);
   const [cashoutProgress, setCashoutProgress] = useState(0);
+  const [escHoldProgress, setEscHoldProgress] = useState(0);
+  const [isHoldingEsc, setIsHoldingEsc] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const { toast } = useToast();
   const resultCardRef = useRef<HTMLDivElement | null>(null);
+  const isHoldingEscRef = useRef(false);
 
   const playCashSound = () => {
     try {
@@ -76,12 +79,51 @@ export default function Game() {
     return { stakeLamports, scoreLamports: payoutLamports, deltaLamports, percent, feeLamports };
   };
   const cashoutDurationMs = 2500;
-  const cashoutResultHoldMs = 4000;
+  const cashoutResultHoldMs = 0;
+  const escHoldDurationMs = 2500;
+
+  const triggerCashout = async () => {
+    const walletAddress = sessionStorage.getItem("slither_wallet");
+    const isTestMode = sessionStorage.getItem("slither_is_test") === "true";
+    if (!walletAddress || isCashoutLoading) return;
+    playCashSound();
+    const result = buildResult(score, "cashout");
+    setResultData(result);
+    setResultKind("cashout");
+    setIsCashoutLoading(true);
+    setCashoutProgress(0);
+    await fetch("/api/auth/cash-out", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ walletAddress, isTestMode, stakeLamports })
+    });
+    window.setTimeout(() => {
+      setIsCashoutLoading(false);
+      sessionStorage.setItem("slither_last_result", JSON.stringify({
+        kind: "cashout",
+        data: result,
+      }));
+    }, cashoutDurationMs);
+    window.setTimeout(() => {
+      sessionStorage.removeItem("slither_in_game");
+      setLocation("/");
+    }, cashoutDurationMs + cashoutResultHoldMs);
+  };
+
+  const buildShareText = () => {
+    if (!resultData) return "Just played Slither.SOL. https://slither.io";
+    const deltaSol = resultData.deltaLamports / 1_000_000_000;
+    if (deltaSol >= 0) {
+      return `I just won ${deltaSol.toFixed(4)} SOL on Slither.SOL! https://slither.io`;
+    }
+    return "Just played Slither.SOL — next run will be better. https://slither.io";
+  };
 
   const handleShare = async () => {
     if (!resultCardRef.current) return;
     setIsSharing(true);
     try {
+      const shareText = buildShareText();
       const canvas = await html2canvas(resultCardRef.current, {
         backgroundColor: "#0b0f1a",
         scale: 2,
@@ -90,20 +132,15 @@ export default function Game() {
       if (!blob) throw new Error("Failed to export image");
       const file = new File([blob], "slither-result.png", { type: "image/png" });
 
-      if (navigator.share && navigator.canShare?.({ files: [file] })) {
-        await navigator.share({
-          files: [file],
-          title: "Slither Result",
-          text: "Check my Slither.SOL result!",
-        });
-      } else {
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = "slither-result.png";
-        link.click();
-        URL.revokeObjectURL(url);
-      }
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "slither-result.png";
+      link.click();
+      URL.revokeObjectURL(url);
+
+      const intentUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
+      window.open(intentUrl, "_blank", "noopener,noreferrer");
     } catch (err: any) {
       toast({
         title: "Share Failed",
@@ -131,11 +168,19 @@ export default function Game() {
         const response = await fetch("/api/auth/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ walletAddress, username, isTestMode })
+          body: JSON.stringify({
+            walletAddress,
+            username,
+            isTestMode,
+            accessKey: localStorage.getItem("slither_access_key") || undefined
+          })
         });
         if (!response.ok) return;
         const data = await response.json();
         if (!cancelled) setUser(data);
+        if ((data as any)?.joinToken) {
+          sessionStorage.setItem("slither_join_token", String((data as any).joinToken));
+        }
       } catch {
         // Ignore refresh errors during gameplay.
       }
@@ -153,13 +198,15 @@ export default function Game() {
     let cancelled = false;
     const fetchPlayers = async () => {
       try {
-        const mode = isTestMode ? "test" : "pvp";
-        const response = await fetch(`/api/players/list?mode=${mode}`, { cache: "no-store" });
-        if (!response.ok) throw new Error("List failed");
-        const data = await response.json();
-        if (!cancelled) {
-          setOnlinePlayers(Array.isArray(data.players) ? data.players : []);
-        }
+        const [testRes, pvpRes] = await Promise.all([
+          fetch("/api/players/list?mode=test", { cache: "no-store" }),
+          fetch("/api/players/list?mode=pvp", { cache: "no-store" }),
+        ]);
+        if (!testRes.ok || !pvpRes.ok) throw new Error("List failed");
+        const [testData, pvpData] = await Promise.all([testRes.json(), pvpRes.json()]);
+        const testPlayers = Array.isArray(testData.players) ? testData.players.map((p: any) => ({ ...p, mode: "test" as const })) : [];
+        const pvpPlayers = Array.isArray(pvpData.players) ? pvpData.players.map((p: any) => ({ ...p, mode: "pvp" as const })) : [];
+        if (!cancelled) setOnlinePlayers([...pvpPlayers, ...testPlayers]);
       } catch {
         if (!cancelled) setOnlinePlayers([]);
       }
@@ -184,8 +231,56 @@ export default function Game() {
     return () => window.clearInterval(intervalId);
   }, [isCashoutLoading, cashoutDurationMs]);
 
+  useEffect(() => {
+    let startedAt = 0;
+    let rafId = 0;
+
+    const tick = (now: number) => {
+      if (!isHoldingEscRef.current || isCashoutLoading || showResult) return;
+      if (!startedAt) startedAt = now;
+      const elapsed = now - startedAt;
+      const progress = Math.min(1, elapsed / escHoldDurationMs);
+      setEscHoldProgress(progress);
+      if (progress >= 1) {
+        isHoldingEscRef.current = false;
+        setIsHoldingEsc(false);
+        setEscHoldProgress(0);
+        void triggerCashout();
+        return;
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || isCashoutLoading || showResult) return;
+      if (isHoldingEscRef.current) return;
+      isHoldingEscRef.current = true;
+      setIsHoldingEsc(true);
+      setEscHoldProgress(0);
+      startedAt = 0;
+      rafId = requestAnimationFrame(tick);
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      isHoldingEscRef.current = false;
+      setIsHoldingEsc(false);
+      setEscHoldProgress(0);
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, [escHoldDurationMs, isCashoutLoading, showResult]);
+
   const handleGameOver = (finalScore: number) => {
     if (gameOver) return;
+    if (isCashoutLoading || isHoldingEscRef.current || showResult) return;
     setGameOver(true);
     setResultData(buildResult(finalScore, "loss"));
     setShowResult(true);
@@ -244,6 +339,9 @@ export default function Game() {
               <div key={player.id} className="flex items-center justify-between gap-2">
                 <span className="text-gray-200 font-semibold truncate">{player.name}</span>
                 <span className="text-[10px] text-gray-500 font-mono shrink-0">{formatWallet(player.walletAddress)}</span>
+                <span className={`text-[10px] uppercase tracking-widest font-bold ${player.mode === "pvp" ? "text-emerald-300" : "text-purple-300"}`}>
+                  {player.mode}
+                </span>
               </div>
             ))}
           </div>
@@ -255,37 +353,16 @@ export default function Game() {
           <span className="text-gray-400 font-bold mr-2">PLAYER</span>
           <span className="text-lg text-white font-bold">{username}</span>
         </div>
-        <CyberButton 
-          variant="secondary"
-          className="pointer-events-auto"
-          disabled={isCashoutLoading}
-          onClick={async () => {
-            const walletAddress = sessionStorage.getItem("slither_wallet");
-            const isTestMode = sessionStorage.getItem("slither_is_test") === "true";
-            if (walletAddress) {
-              playCashSound();
-              setResultData(buildResult(score, "cashout"));
-              setResultKind("cashout");
-              setIsCashoutLoading(true);
-              setCashoutProgress(0);
-              await fetch("/api/auth/cash-out", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ walletAddress, isTestMode, stakeLamports })
-              });
-              window.setTimeout(() => {
-                setIsCashoutLoading(false);
-                setShowResult(true);
-              }, cashoutDurationMs);
-              window.setTimeout(() => {
-                sessionStorage.removeItem("slither_in_game");
-                setLocation("/");
-              }, cashoutDurationMs + cashoutResultHoldMs);
-            }
-          }}
-        >
-          {isCashoutLoading ? "Cashing Out..." : "Return to Menu"}
-        </CyberButton>
+        <div className="pointer-events-none bg-black/50 backdrop-blur px-5 py-3 rounded-2xl border border-white/10 text-sm text-gray-200 w-48">
+          <div className="text-xs uppercase tracking-widest text-gray-400">Cash Out</div>
+          <div className="mt-1 font-semibold">Hold ESC</div>
+          <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
+            <div
+              className="h-full bg-secondary transition-transform duration-75 ease-linear origin-left"
+              style={{ transform: `scaleX(${escHoldProgress})` }}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Game Over Modal */}
@@ -297,7 +374,7 @@ export default function Game() {
             className="absolute inset-0 z-40 flex items-center justify-center bg-black/30 backdrop-blur-[1px]"
           >
             <div className="bg-black/70 border border-white/10 rounded-xl px-6 py-4 text-sm uppercase tracking-widest text-gray-200 w-[260px]">
-              <div className="mb-3 text-center">Processing...</div>
+              <div className="mb-3 text-center">Cashing Out...</div>
               <div className="h-2 rounded-full bg-white/10 overflow-hidden">
                 <div
                   className="h-full bg-primary transition-[width] duration-100"

@@ -19,7 +19,10 @@ export const api = {
     login: {
       method: 'POST' as const,
       path: '/api/auth/login',
-      input: insertUserSchema.extend({ isTestMode: z.boolean().optional() }),
+      input: insertUserSchema.extend({
+        isTestMode: z.boolean().optional(),
+        accessKey: z.string().optional(),
+      }),
       responses: {
         200: z.custom<typeof users.$inferSelect>(),
         201: z.custom<typeof users.$inferSelect>(),

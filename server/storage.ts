@@ -1,15 +1,21 @@
-import { users, type User, type InsertUser } from "@shared/schema";
+import { users, whitelistKeys, type User, type InsertUser, type WhitelistKey } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByWallet(walletAddress: string): Promise<User | undefined>;
   createUser(user: InsertUser & { isTestMode?: boolean }): Promise<User>;
+  updateUsername(id: number, username: string): Promise<User>;
   updateUserScore(id: number, score: number): Promise<User>;
   updateUserBalance(id: number, amount: number): Promise<User>;
   updateUserTestBalance(id: number, amount: number): Promise<User>;
   updateUserTestMode(id: number, isTestMode: boolean): Promise<User>;
+  updateUserCosmetics(id: number, ownedHats: string[], equippedHat: string | null): Promise<User>;
+  getWhitelistKey(key: string): Promise<WhitelistKey | undefined>;
+  bindWhitelistKey(key: string, boundIp: string): Promise<WhitelistKey>;
+  touchWhitelistKey(key: string): Promise<WhitelistKey>;
+  createWhitelistKeys(keys: string[]): Promise<void>;
   getTopUsers(limit?: number): Promise<User[]>;
 }
 
@@ -49,6 +55,15 @@ export class DatabaseStorage implements IStorage {
       return updated;
     }
     return currentUser;
+  }
+
+  async updateUsername(id: number, username: string): Promise<User> {
+    const [updated] = await db
+      .update(users)
+      .set({ username })
+      .where(eq(users.id, id))
+      .returning();
+    return updated;
   }
 
   async updateUserPayment(id: number, status: boolean): Promise<User> {
@@ -91,6 +106,43 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.id, id))
       .returning();
     return updated;
+  }
+
+  async updateUserCosmetics(id: number, ownedHats: string[], equippedHat: string | null): Promise<User> {
+    const [updated] = await db
+      .update(users)
+      .set({ ownedHats, equippedHat })
+      .where(eq(users.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getWhitelistKey(key: string): Promise<WhitelistKey | undefined> {
+    const [entry] = await db.select().from(whitelistKeys).where(eq(whitelistKeys.key, key));
+    return entry;
+  }
+
+  async bindWhitelistKey(key: string, boundIp: string): Promise<WhitelistKey> {
+    const [updated] = await db
+      .update(whitelistKeys)
+      .set({ boundIp, lastUsedAt: new Date(), useCount: sql`${whitelistKeys.useCount} + 1` })
+      .where(eq(whitelistKeys.key, key))
+      .returning();
+    return updated;
+  }
+
+  async touchWhitelistKey(key: string): Promise<WhitelistKey> {
+    const [updated] = await db
+      .update(whitelistKeys)
+      .set({ lastUsedAt: new Date(), useCount: sql`${whitelistKeys.useCount} + 1` })
+      .where(eq(whitelistKeys.key, key))
+      .returning();
+    return updated;
+  }
+
+  async createWhitelistKeys(keys: string[]): Promise<void> {
+    if (!keys.length) return;
+    await db.insert(whitelistKeys).values(keys.map((key) => ({ key }))).onConflictDoNothing();
   }
 
   async getTopUsers(limit = 10): Promise<User[]> {

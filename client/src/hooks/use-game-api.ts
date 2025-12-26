@@ -19,7 +19,7 @@ export function useAuth() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async (user: InsertUser) => {
+    mutationFn: async (user: InsertUser & { isTestMode?: boolean; accessKey?: string }) => {
       const res = await fetch(api.auth.login.path, {
         method: api.auth.login.method,
         headers: { "Content-Type": "application/json" },
@@ -45,6 +45,10 @@ export function useAuth() {
     onSuccess: (data) => {
       // Store user ID in local session storage for simple persistence across reloads if needed
       sessionStorage.setItem("slither_user_id", String(data.id));
+      const joinToken = (data as any)?.joinToken;
+      if (joinToken) {
+        sessionStorage.setItem("slither_join_token", String(joinToken));
+      }
       queryClient.invalidateQueries({ queryKey: [api.users.list.path] });
     }
   });

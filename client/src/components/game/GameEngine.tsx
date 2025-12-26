@@ -29,10 +29,10 @@ interface Food {
 // --- Constants ---
 const WORLD_SIZE = 4000;
 const INITIAL_SNAKE_LENGTH = 20;
-const BASE_SPEED = 4;
-const BOOST_SPEED = 7;
-const TURN_SPEED = 0.08;
-const INTERPOLATION_MS = 200;
+const BASE_SPEED = 6.5;
+const BOOST_SPEED = 13.5;
+const TURN_SPEED = 0.14;
+const INTERPOLATION_MS = 40;
 const COLORS = ['#22c55e', '#a855f7', '#06b6d4', '#f43f5e', '#eab308'];
 
 let sharedSocket: WebSocket | null = null;
@@ -77,6 +77,8 @@ export function GameEngine({
   const userId = sessionStorage.getItem("slither_user_id");
   const walletAddress = sessionStorage.getItem("slither_wallet");
   const stakeLamports = Number(sessionStorage.getItem("slither_stake") || "0");
+  const accessKey = localStorage.getItem("slither_access_key") || "";
+  const joinToken = sessionStorage.getItem("slither_join_token") || "";
 
   useEffect(() => {
     onGameOverRef.current = onGameOver;
@@ -133,7 +135,9 @@ export function GameEngine({
           isTestMode: joinedIsTest,
           userId: joinedUserId ? Number(joinedUserId) : 0,
           walletAddress: joinedWallet,
-          stakeLamports: joinedStake
+          stakeLamports: joinedStake,
+          accessKey,
+          joinToken
         }
       }));
       sharedPlayerId = playerIdRef.current;
@@ -475,7 +479,7 @@ export function GameEngine({
         type: "input",
         payload: { angle, boosting }
       }));
-    }, 50);
+    }, 20);
 
     return () => window.clearInterval(intervalId);
   }, [height, width]);
