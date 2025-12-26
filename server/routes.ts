@@ -37,10 +37,13 @@ export async function registerRoutes(
       // If user exists but is entering test mode, give them test balance if they don't have it
       if (req.body.isTestMode && !user.isTestMode) {
          user = await storage.updateUserBalance(user.id, 10 * 1_000_000_000);
+         // Also update the test mode flag in DB
+         user = await storage.updateUserTestMode(user.id, true);
       }
       
       res.status(200).json(user);
     } catch (err) {
+      console.error("Login error:", err);
       if (err instanceof z.ZodError) {
         return res.status(400).json({
           message: err.errors[0].message,
