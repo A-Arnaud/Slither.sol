@@ -44,9 +44,14 @@ export default function Game() {
 
       {/* UI Overlay */}
       <div className="absolute top-4 left-4 z-10 flex flex-col gap-2 pointer-events-none">
-        <div className="bg-black/50 backdrop-blur px-6 py-3 rounded-full border border-primary/30 box-glow">
-          <span className="text-gray-400 font-bold mr-2">SOL</span>
-          <span className="text-2xl font-mono text-primary font-bold">{(score / 1_000_000_000).toFixed(4)}</span>
+        <div className="bg-black/50 backdrop-blur px-6 py-3 rounded-full border border-primary/30 box-glow flex items-center gap-2">
+          <span className="text-gray-400 font-bold">SOL</span>
+          <span className="text-2xl font-mono text-primary font-bold">
+            {(score / 1_000_000_000).toFixed(4)}
+          </span>
+          {sessionStorage.getItem("slither_is_test") === "true" && (
+            <span className="text-xs font-mono text-purple-400 font-bold ml-1">FAKE</span>
+          )}
         </div>
       </div>
 

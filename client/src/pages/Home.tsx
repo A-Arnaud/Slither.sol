@@ -10,6 +10,7 @@ import { motion } from 'framer-motion';
 import { AlertCircle, Wallet, Coins } from 'lucide-react';
 import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL, clusterApiUrl } from '@solana/web3.js';
 import { useToast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
 
 export default function Home() {
   const [, setLocation] = useLocation();
@@ -173,18 +174,44 @@ export default function Home() {
 
         <div className="hidden lg:block space-y-6">
             <div className="bg-gradient-to-br from-purple-900/40 to-blue-900/40 border border-white/10 p-6 rounded-xl backdrop-blur-md">
-              <h3 className="text-lg font-bold text-white mb-2">My Balance</h3>
-              <div className="flex items-baseline gap-4">
-                <div className="text-4xl font-mono text-secondary font-bold text-glow">
-                  {loginMutation.data ? (loginMutation.data.solBalance / 1_000_000_000).toFixed(4) : "0.0000"} SOL
-                </div>
-                {loginMutation.data && (
-                  <div className="text-xl font-mono text-primary/70 font-bold">
-                    ({(loginMutation.data.testSolBalance / 1_000_000_000).toFixed(2)} FAKE)
+              <h3 className="text-lg font-bold text-white mb-2">My Balances</h3>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-400 uppercase tracking-wider font-bold">Real Solana</span>
+                  <div className="text-3xl font-mono text-secondary font-bold text-glow">
+                    {loginMutation.data ? (Number(loginMutation.data.solBalance || 0) / 1_000_000_000).toFixed(4) : "0.0000"} SOL
                   </div>
-                )}
+                </div>
+                <div className="flex items-center justify-between border-t border-white/5 pt-4">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm text-gray-400 uppercase tracking-wider font-bold">Fake Balance</span>
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="h-7 text-[10px] uppercase font-bold"
+                      onClick={async () => {
+                        const walletAddress = loginMutation.data?.walletAddress;
+                        if (walletAddress) {
+                          await fetch("/api/users/add-fake-sol", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ walletAddress, amount: 10 * 1_000_000_000 })
+                          });
+                          loginMutation.reset(); // Refresh data
+                        }
+                      }}
+                    >
+                      + 10 FAKE SOL
+                    </Button>
+                  </div>
+                  <div className="text-3xl font-mono text-primary font-bold text-glow">
+                    {loginMutation.data ? (Number(loginMutation.data.testSolBalance || 0) / 1_000_000_000).toFixed(2) : "0.00"} FAKE
+                  </div>
+                </div>
               </div>
-              <div className="text-sm text-gray-400 mt-1">Available for Play or Cash Out</div>
+              <div className="text-xs text-gray-500 mt-4 uppercase tracking-widest text-center">
+                Available for Play or Cash Out
+              </div>
             </div>
             
             <Leaderboard />

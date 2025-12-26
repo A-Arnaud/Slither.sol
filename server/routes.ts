@@ -107,6 +107,18 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/users/add-fake-sol", async (req, res) => {
+    try {
+      const { walletAddress, amount } = req.body;
+      const user = await storage.getUserByWallet(walletAddress);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      const updated = await storage.updateUserTestBalance(user.id, amount);
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to add fake SOL" });
+    }
+  });
+
   app.get(api.users.list.path, async (req, res) => {
     const users = await storage.getTopUsers(10);
     res.json(users);
