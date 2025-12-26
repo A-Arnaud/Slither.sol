@@ -45,8 +45,8 @@ export default function Game() {
       {/* UI Overlay */}
       <div className="absolute top-4 left-4 z-10 flex flex-col gap-2 pointer-events-none">
         <div className="bg-black/50 backdrop-blur px-6 py-3 rounded-full border border-primary/30 box-glow">
-          <span className="text-gray-400 font-bold mr-2">SCORE</span>
-          <span className="text-2xl font-mono text-primary font-bold">{score}</span>
+          <span className="text-gray-400 font-bold mr-2">SOL</span>
+          <span className="text-2xl font-mono text-primary font-bold">{(score / 1_000_000_000).toFixed(4)}</span>
         </div>
       </div>
 
@@ -92,7 +92,7 @@ export default function Game() {
               
               <div className="bg-black/40 p-6 rounded-xl border border-white/10 mb-8">
                 <div className="text-sm text-gray-500 uppercase tracking-wider mb-1">Final Score</div>
-                <div className="text-4xl font-mono text-white font-bold">{score}</div>
+                <div className="text-4xl font-mono text-white font-bold">{(score / 1_000_000_000).toFixed(4)} SOL</div>
               </div>
 
               <div className="space-y-4">

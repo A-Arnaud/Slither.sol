@@ -172,7 +172,15 @@ export default function Home() {
         </motion.div>
 
         <div className="hidden lg:block space-y-6">
-          <Leaderboard />
+            <div className="bg-gradient-to-br from-purple-900/40 to-blue-900/40 border border-white/10 p-6 rounded-xl backdrop-blur-md">
+              <h3 className="text-lg font-bold text-white mb-2">My Balance</h3>
+              <div className="text-4xl font-mono text-secondary font-bold text-glow">
+                {loginMutation.data ? (loginMutation.data.solBalance / 1_000_000_000).toFixed(4) : "0.0000"} SOL
+              </div>
+              <div className="text-sm text-gray-400 mt-1">Available for Play or Cash Out</div>
+            </div>
+            
+            <Leaderboard />
           <motion.div 
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}

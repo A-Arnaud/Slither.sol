@@ -106,7 +106,10 @@ export function GameEngine({
       } else if (msg.type === 'food-eaten') {
         gameState.current.food = gameState.current.food.filter(f => f.id !== msg.payload.id);
         if (msg.payload.playerId === gameState.current.player.id) {
-           gameState.current.player.score += 10;
+           const eatenFood = gameState.current.food.find(f => f.id === msg.payload.id);
+           // If we found it before removal or if server sends value
+           const value = eatenFood?.isLoot ? eatenFood.lamports : 1_000_000; 
+           gameState.current.player.score += value;
            onScoreUpdate(gameState.current.player.score);
         }
       } else if (msg.type === 'player-joined' || msg.type === 'player-moved') {
