@@ -25,7 +25,18 @@ export async function registerRoutes(
           username: input.username,
           isTestMode: req.body.isTestMode || false
         });
+        
+        // Give fake SOL if test mode
+        if (req.body.isTestMode) {
+          user = await storage.updateUserBalance(user.id, 10 * 1_000_000_000); // 10 Fake SOL
+        }
+        
         return res.status(201).json(user);
+      }
+      
+      // If user exists but is entering test mode, give them test balance if they don't have it
+      if (req.body.isTestMode && !user.isTestMode) {
+         user = await storage.updateUserBalance(user.id, 10 * 1_000_000_000);
       }
       
       res.status(200).json(user);
